@@ -4,7 +4,8 @@ const express = require('express')
 const bodyParser = require('body-parser')
 const ejs = require('ejs')
 const mongoose = require('mongoose')
-const md5 = require('md5')
+const bcrypt = require('bcrypt')
+const saltRounds = 10
 dotenv.config()
 
 const app = express()
@@ -39,27 +40,32 @@ app.get('/register', (req, res) => {
 
 //Creating new user inside register
 app.post('/register', (req, res) => {
-    const newUser = new User({
-        email: req.body.username,
-        password: md5(req.body.password) //hashing password using md5
+    
+    bcrypt.hash(req.body.password, saltRounds, (err, hash) => {
+        const newUser = new User({
+            email: req.body.username,
+            password: hash //hashing password using bcrypt
+        })
+    
+        //Saving New User in DBs
+        newUser.save(function(error){
+            if(error){
+                console.log(error)
+            }
+            else{
+                res.render('secrets')
+            }
+        })
     })
-
-    //Saving New User in DBs
-    newUser.save(function(error){
-        if(error){
-            console.log(error)
-        }
-        else{
-            res.render('secrets')
-        }
-    })
+    
+    
 })
 
 app.post('/login', (req, res) => {
     
     //getting input data from login form
     const username = req.body.username
-    const password = md5(req.body.password) //hashing password using md5
+    const password = req.body.password 
 
     //looking user in DB
     User.findOne({email: username}, (err, foundUser) => {
@@ -69,9 +75,11 @@ app.post('/login', (req, res) => {
         }
         else{
             if(foundUser){ //if user is found in DB and password stored in DB matches with input password => Login Successful
-                if(foundUser.password === password){
-                    res.render('secrets')
-                }
+                bcrypt.compare(password, foundUser.password, (err, result) => { //comparing login input password with hashed password
+                    if(result === true){
+                        res.render('secrets')
+                    }
+                })
             }
         }
     })
