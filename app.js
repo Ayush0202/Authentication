@@ -4,8 +4,9 @@ const express = require('express')
 const bodyParser = require('body-parser')
 const ejs = require('ejs')
 const mongoose = require('mongoose')
-const bcrypt = require('bcrypt')
-const saltRounds = 10
+const session = require('express-session')
+const passport = require('passport')
+const passportLocalMongoose = require('passport-local-mongoose')
 dotenv.config()
 
 const app = express()
@@ -13,6 +14,16 @@ const app = express()
 app.use(express.static('public'))
 app.set('view engine', 'ejs')
 app.use(bodyParser.urlencoded({extended: true}))
+
+//establishing a session
+app.use(session({
+    secret: 'our little secret',
+    resave: false,
+    saveUninitialized: false
+}))
+
+app.use(passport.initialize())
+app.use(passport.session())
 
 //connect to Database
 mongoose.connect('mongodb://localhost:27017/authDB', {useUnifiedTopology: true, useNewUrlParser: true})
@@ -23,7 +34,12 @@ const userSchema = new mongoose.Schema({
     password: String
 })
 
+userSchema.plugin(passportLocalMongoose)
+
 const User = new mongoose.model('User', userSchema)
+
+passport.serializeUser(User.serializeUser())
+passport.deserializeUser(User.deserializeUser())
 
 //Routes
 app.get('/', (req, res) => {
@@ -38,51 +54,61 @@ app.get('/register', (req, res) => {
     res.render('register')
 })
 
+//allowing access to secrets page if user is authenticated
+app.get('/secrets', (req, res) => {
+    if(req.isAuthenticated()){
+        res.render('secrets')
+    }
+    else{
+        res.redirect('/login')
+    }
+})
+
+//logging out 
+app.get('/logout', (req, res) => {
+    req.logout((err) => {
+        if(err){
+            console.log(err)
+        }
+        res.redirect('/')
+    })
+   
+})
+
 //Creating new user inside register
 app.post('/register', (req, res) => {
     
-    bcrypt.hash(req.body.password, saltRounds, (err, hash) => {
-        const newUser = new User({
-            email: req.body.username,
-            password: hash //hashing password using bcrypt
-        })
-    
-        //Saving New User in DBs
-        newUser.save(function(error){
-            if(error){
-                console.log(error)
-            }
-            else{
-                res.render('secrets')
-            }
-        })
-    })
-    
+   User.register({username: req.body.username}, req.body.password, (err, user) => {
+        if(err){
+            console.log(err)
+            res.redirect('/register')
+        }
+        else{
+            res.redirect('/login')
+        }
+   })
     
 })
 
+//login a user
 app.post('/login', (req, res) => {
     
-    //getting input data from login form
-    const username = req.body.username
-    const password = req.body.password 
+    //getting data from login form
+   const user = new User({
+        username: req.body.username,
+        password: req.body.password
+   })
 
-    //looking user in DB
-    User.findOne({email: username}, (err, foundUser) => {
-        //display error
+   req.login(user, (err) => {
         if(err){
             console.log(err)
         }
         else{
-            if(foundUser){ //if user is found in DB and password stored in DB matches with input password => Login Successful
-                bcrypt.compare(password, foundUser.password, (err, result) => { //comparing login input password with hashed password
-                    if(result === true){
-                        res.render('secrets')
-                    }
-                })
-            }
+            passport.authenticate('local')(req, res, () => {
+                res.redirect('/secrets')
+            })
         }
-    })
+   })
 
 })
 
